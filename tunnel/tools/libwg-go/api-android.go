@@ -193,6 +193,30 @@ func wgGetSocketV6(tunnelHandle int32) int32 {
 	return int32(fd)
 }
 
+//export wgBindUpdate
+func wgBindUpdate(tunnelHandle int32) *C.char {
+	handle, ok := tunnelHandles[tunnelHandle]
+	if !ok {
+		return C.CString(fmt.Sprintf("BindUpdate: no device for handle %d", tunnelHandle))
+	}
+	if err := handle.device.BindUpdate(); err != nil {
+		return C.CString(fmt.Sprintf("BindUpdate: %v", err))
+	}
+	return nil
+}
+
+//export wgSendKeepalivesToPeersWithCurrentKeypair
+func wgSendKeepalivesToPeersWithCurrentKeypair(tunnelHandle int32) *C.char {
+	handle, ok := tunnelHandles[tunnelHandle]
+	if !ok {
+		return C.CString(fmt.Sprintf("SendKeepalivesToPeersWithCurrentKeypair: no device for handle %d", tunnelHandle))
+	}
+	// One empty packet per peer whose current keypair is inside RejectAfterTime.
+	// Peers with no session are skipped. PersistentKeepalive is not modified.
+	handle.device.SendKeepalivesToPeersWithCurrentKeypair()
+	return nil
+}
+
 //export wgGetConfig
 func wgGetConfig(tunnelHandle int32) *C.char {
 	handle, ok := tunnelHandles[tunnelHandle]

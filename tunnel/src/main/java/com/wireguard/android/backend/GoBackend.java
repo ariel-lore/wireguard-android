@@ -7,6 +7,10 @@ package com.wireguard.android.backend;
 
 import android.content.Context;
 import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.system.OsConstants;
@@ -48,6 +52,9 @@ public final class GoBackend implements Backend {
     @Nullable private Config currentConfig;
     @Nullable private Tunnel currentTunnel;
     private int currentTunnelHandle = -1;
+    private final Object wgLock = new Object();
+    @Nullable private ConnectivityManager.NetworkCallback networkCallback;
+    private volatile int networkEpoch;
 
     /**
      * Public constructor for GoBackend.
@@ -76,6 +83,10 @@ public final class GoBackend implements Backend {
     private static native int wgGetSocketV6(int handle);
 
     private static native void wgTurnOff(int handle);
+
+    @Nullable private static native String wgBindUpdate(int handle);
+
+    @Nullable private static native String wgSendKeepalivesToPeersWithCurrentKeypair(int handle);
 
     private static native int wgTurnOn(String ifName, int tunFd, String settings);
 
@@ -348,22 +359,165 @@ public final class GoBackend implements Backend {
 
             service.protect(wgGetSocketV4(currentTunnelHandle));
             service.protect(wgGetSocketV6(currentTunnelHandle));
+            startNetworkChangeMonitor(tunnel.getName());
         } else {
-            if (currentTunnelHandle == -1) {
-                Log.w(TAG, "Tunnel already down");
-                return;
+            stopNetworkChangeMonitor();
+            synchronized (wgLock) {
+                if (currentTunnelHandle == -1) {
+                    Log.w(TAG, "Tunnel already down");
+                    return;
+                }
+                final int handleToClose = currentTunnelHandle;
+                currentTunnel = null;
+                currentTunnelHandle = -1;
+                currentConfig = null;
+                wgTurnOff(handleToClose);
             }
-            int handleToClose = currentTunnelHandle;
-            currentTunnel = null;
-            currentTunnelHandle = -1;
-            currentConfig = null;
-            wgTurnOff(handleToClose);
             try {
                 vpnService.get(0, TimeUnit.NANOSECONDS).stopSelf();
             } catch (final TimeoutException ignored) { }
         }
 
         tunnel.onStateChange(state);
+    }
+
+    /**
+     * Start watching the underlying networks so that one keepalive is sent when they change, as
+     * wireguard-apple does with wgBumpSockets. Any previous monitor is stopped first.
+     * {@code registerDefaultNetworkCallback} would report this VPN once it becomes the default, so
+     * this registers a listen-only {@link ConnectivityManager#registerNetworkCallback} for networks
+     * with {@code NET_CAPABILITY_INTERNET} and {@code NET_CAPABILITY_NOT_VPN} instead.
+     * Networks already present at registration are not a change. A newly available network sends
+     * a keepalive; a lost network sends one only if another underlying network remains.
+     * PersistentKeepalive is not changed.
+     *
+     * @param tunnelName The name of the tunnel that was just brought up. Keepalives are only sent
+     *                   while it is still the current tunnel.
+     */
+    private void startNetworkChangeMonitor(final String tunnelName) {
+        stopNetworkChangeMonitor();
+        final ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null) {
+            Log.e(TAG, "Tunnel " + tunnelName + ": ConnectivityManager unavailable; network-change keepalive will not run");
+            return;
+        }
+        final int epoch = ++networkEpoch;
+        final Set<Network> seen = new ArraySet<>();
+        for (final Network network : cm.getAllNetworks()) {
+            final NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+            if (caps != null
+                    && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN))
+                seen.add(network);
+        }
+        final int present = seen.size();
+        final ConnectivityManager.NetworkCallback callback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(final Network network) {
+                if (epoch != networkEpoch || !seen.add(network))
+                    return;
+                sendNetworkChangeKeepalive(tunnelName, "onAvailable " + network);
+            }
+
+            @Override
+            public void onLost(final Network network) {
+                if (epoch != networkEpoch || !seen.remove(network))
+                    return;
+                if (seen.isEmpty()) {
+                    Log.i(TAG, "Tunnel " + tunnelName + ": no underlying network left after losing " + network + "; not sending keepalive");
+                    return;
+                }
+                sendNetworkChangeKeepalive(tunnelName, "onLost " + network);
+            }
+        };
+        final NetworkRequest request = new NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                .build();
+        try {
+            cm.registerNetworkCallback(request, callback);
+            networkCallback = callback;
+            Log.i(TAG, "Tunnel " + tunnelName + ": watching underlying networks for one-shot keepalive (" + present + " present)");
+        } catch (final RuntimeException e) {
+            Log.e(TAG, "Tunnel " + tunnelName + ": failed to register network callback: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Stop the monitor started by {@link #startNetworkChangeMonitor(String)}, if any. Callbacks
+     * from an older registration are ignored from then on. Does nothing if no monitor is
+     * registered.
+     */
+    private void stopNetworkChangeMonitor() {
+        networkEpoch++;
+        final ConnectivityManager.NetworkCallback callback = networkCallback;
+        networkCallback = null;
+        if (callback == null)
+            return;
+        final ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null)
+            return;
+        try {
+            cm.unregisterNetworkCallback(callback);
+        } catch (final RuntimeException e) {
+            Log.w(TAG, "Failed to unregister network callback: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Rebind the UDP sockets of the current tunnel and send one keepalive to each peer that has a
+     * current session. {@code wgBindUpdate} replaces the sockets, so each new socket is passed to
+     * {@link VpnService#protect(int)} before {@code wgSendKeepalivesToPeersWithCurrentKeypair}
+     * runs; otherwise the keepalive would be routed into the tunnel. Nothing is sent if the tunnel
+     * is down or is no longer {@code tunnelName}, if no socket is left after the rebind, or if
+     * rebinding or protecting fails. Failures are logged.
+     *
+     * @param tunnelName The name of the tunnel the monitor was started for.
+     * @param why        The network event that caused this call, used in log messages.
+     */
+    private void sendNetworkChangeKeepalive(final String tunnelName, final String why) {
+        synchronized (wgLock) {
+            if (currentTunnelHandle < 0 || currentTunnel == null || !tunnelName.equals(currentTunnel.getName()))
+                return;
+            final int handle = currentTunnelHandle;
+            Log.i(TAG, "Tunnel " + tunnelName + ": underlying network changed (" + why + "); rebinding UDP sockets and sending one keepalive to each peer with a current session");
+            final String bindError = wgBindUpdate(handle);
+            if (bindError != null) {
+                Log.e(TAG, "Tunnel " + tunnelName + ": BindUpdate failed after " + why + ": " + bindError);
+                return;
+            }
+            final VpnService service;
+            try {
+                service = vpnService.get(0, TimeUnit.NANOSECONDS);
+            } catch (final Exception e) {
+                Log.e(TAG, "Tunnel " + tunnelName + ": VpnService is not running; not sending keepalive after " + why, e);
+                return;
+            }
+            final int fd4 = wgGetSocketV4(handle);
+            final int fd6 = wgGetSocketV6(handle);
+            if (fd4 < 0 && fd6 < 0) {
+                Log.e(TAG, "Tunnel " + tunnelName + ": no UDP socket after rebind (" + why + "); not sending keepalive");
+                return;
+            }
+            if (fd4 < 0)
+                Log.w(TAG, "Tunnel " + tunnelName + ": no IPv4 UDP socket after rebind (" + why + ")");
+            else if (!service.protect(fd4)) {
+                Log.e(TAG, "Tunnel " + tunnelName + ": VpnService.protect failed for IPv4 socket fd " + fd4 + " after " + why + "; not sending keepalive");
+                return;
+            }
+            if (fd6 < 0)
+                Log.w(TAG, "Tunnel " + tunnelName + ": no IPv6 UDP socket after rebind (" + why + ")");
+            else if (!service.protect(fd6)) {
+                Log.e(TAG, "Tunnel " + tunnelName + ": VpnService.protect failed for IPv6 socket fd " + fd6 + " after " + why + "; not sending keepalive");
+                return;
+            }
+            final String sendError = wgSendKeepalivesToPeersWithCurrentKeypair(handle);
+            if (sendError != null) {
+                Log.e(TAG, "Tunnel " + tunnelName + ": keepalive failed after " + why + ": " + sendError);
+                return;
+            }
+            Log.i(TAG, "Tunnel " + tunnelName + ": sent one network-change keepalive to each peer with a current session");
+        }
     }
 
     /**
@@ -393,13 +547,16 @@ public final class GoBackend implements Backend {
         @Override
         public void onDestroy() {
             if (owner != null) {
+                owner.stopNetworkChangeMonitor();
                 final Tunnel tunnel = owner.currentTunnel;
                 if (tunnel != null) {
-                    if (owner.currentTunnelHandle != -1)
-                        wgTurnOff(owner.currentTunnelHandle);
-                    owner.currentTunnel = null;
-                    owner.currentTunnelHandle = -1;
-                    owner.currentConfig = null;
+                    synchronized (owner.wgLock) {
+                        if (owner.currentTunnelHandle != -1)
+                            wgTurnOff(owner.currentTunnelHandle);
+                        owner.currentTunnel = null;
+                        owner.currentTunnelHandle = -1;
+                        owner.currentConfig = null;
+                    }
                     tunnel.onStateChange(State.DOWN);
                 }
             }

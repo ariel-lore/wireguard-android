@@ -10,6 +10,8 @@
 struct go_string { const char *str; long n; };
 extern int wgTurnOn(struct go_string ifname, int tun_fd, struct go_string settings);
 extern void wgTurnOff(int handle);
+extern char *wgBindUpdate(int handle);
+extern char *wgSendKeepalivesToPeersWithCurrentKeypair(int handle);
 extern int wgGetSocketV4(int handle);
 extern int wgGetSocketV6(int handle);
 extern char *wgGetConfig(int handle);
@@ -36,6 +38,28 @@ JNIEXPORT jint JNICALL Java_com_wireguard_android_backend_GoBackend_wgTurnOn(JNI
 JNIEXPORT void JNICALL Java_com_wireguard_android_backend_GoBackend_wgTurnOff(JNIEnv *env, jclass c, jint handle)
 {
 	wgTurnOff(handle);
+}
+
+JNIEXPORT jstring JNICALL Java_com_wireguard_android_backend_GoBackend_wgBindUpdate(JNIEnv *env, jclass c, jint handle)
+{
+	jstring ret;
+	char *err = wgBindUpdate(handle);
+	if (!err)
+		return NULL;
+	ret = (*env)->NewStringUTF(env, err);
+	free(err);
+	return ret;
+}
+
+JNIEXPORT jstring JNICALL Java_com_wireguard_android_backend_GoBackend_wgSendKeepalivesToPeersWithCurrentKeypair(JNIEnv *env, jclass c, jint handle)
+{
+	jstring ret;
+	char *err = wgSendKeepalivesToPeersWithCurrentKeypair(handle);
+	if (!err)
+		return NULL;
+	ret = (*env)->NewStringUTF(env, err);
+	free(err);
+	return ret;
 }
 
 JNIEXPORT jint JNICALL Java_com_wireguard_android_backend_GoBackend_wgGetSocketV4(JNIEnv *env, jclass c, jint handle)
