@@ -183,6 +183,10 @@
     <string name="permission_description">control WireGuard tunnels, enabling and disabling tunnels at will, potentially misdirecting Internet traffic</string>
     <string name="permission_label">control WireGuard tunnels</string>
     <string name="persistent_keepalive">Persistent keepalive</string>
+    <string name="keepalive_on_network_change">Send keepalive on network change</string>
+    <string name="keepalive_on_network_change_summary">One packet to each peer with a current session when the underlying network changes. No periodic traffic.</string>
+    <string name="keepalive_on_network_change_value_on">On</string>
+    <string name="keepalive_on_network_change_value_off">Off</string>
     <string name="pre_shared_key">Pre-shared key</string>
     <string name="pre_shared_key_enabled">enabled</string>
     <string name="private_key">Private key</string>

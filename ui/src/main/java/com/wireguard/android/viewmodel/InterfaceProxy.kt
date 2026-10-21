@@ -40,6 +40,13 @@ class InterfaceProxy : BaseObservable, Parcelable {
         }
 
     @get:Bindable
+    var keepaliveOnNetworkChange: Boolean = true
+        set(value) {
+            field = value
+            notifyPropertyChanged(BR.keepaliveOnNetworkChange)
+        }
+
+    @get:Bindable
     var listenPort: String = ""
         set(value) {
             field = value
@@ -77,6 +84,7 @@ class InterfaceProxy : BaseObservable, Parcelable {
         listenPort = parcel.readString() ?: ""
         mtu = parcel.readString() ?: ""
         privateKey = parcel.readString() ?: ""
+        keepaliveOnNetworkChange = parcel.readInt() != 0
     }
 
     constructor(other: Interface) {
@@ -87,6 +95,7 @@ class InterfaceProxy : BaseObservable, Parcelable {
         includedApplications.addAll(other.includedApplications)
         listenPort = other.listenPort.map { it.toString() }.orElse("")
         mtu = other.mtu.map { it.toString() }.orElse("")
+        keepaliveOnNetworkChange = other.isKeepaliveOnNetworkChange
         val keyPair = other.keyPair
         privateKey = keyPair.privateKey.toBase64()
     }
@@ -111,6 +120,7 @@ class InterfaceProxy : BaseObservable, Parcelable {
         if (includedApplications.isNotEmpty()) builder.includeApplications(includedApplications)
         if (listenPort.isNotEmpty()) builder.parseListenPort(listenPort)
         if (mtu.isNotEmpty()) builder.parseMtu(mtu)
+        builder.setKeepaliveOnNetworkChange(keepaliveOnNetworkChange)
         if (privateKey.isNotEmpty()) builder.parsePrivateKey(privateKey)
         return builder.build()
     }
@@ -123,6 +133,7 @@ class InterfaceProxy : BaseObservable, Parcelable {
         dest.writeString(listenPort)
         dest.writeString(mtu)
         dest.writeString(privateKey)
+        dest.writeInt(if (keepaliveOnNetworkChange) 1 else 0)
     }
 
     private class InterfaceProxyCreator : Parcelable.Creator<InterfaceProxy> {

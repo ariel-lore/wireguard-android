@@ -193,30 +193,6 @@ func wgGetSocketV6(tunnelHandle int32) int32 {
 	return int32(fd)
 }
 
-//export wgBindUpdate
-func wgBindUpdate(tunnelHandle int32) *C.char {
-	handle, ok := tunnelHandles[tunnelHandle]
-	if !ok {
-		return C.CString(fmt.Sprintf("BindUpdate: no device for handle %d", tunnelHandle))
-	}
-	if err := handle.device.BindUpdate(); err != nil {
-		return C.CString(fmt.Sprintf("BindUpdate: %v", err))
-	}
-	return nil
-}
-
-//export wgSendKeepalivesToPeersWithCurrentKeypair
-func wgSendKeepalivesToPeersWithCurrentKeypair(tunnelHandle int32) *C.char {
-	handle, ok := tunnelHandles[tunnelHandle]
-	if !ok {
-		return C.CString(fmt.Sprintf("SendKeepalivesToPeersWithCurrentKeypair: no device for handle %d", tunnelHandle))
-	}
-	// One empty packet per peer whose current keypair is inside RejectAfterTime.
-	// Peers with no session are skipped. PersistentKeepalive is not modified.
-	handle.device.SendKeepalivesToPeersWithCurrentKeypair()
-	return nil
-}
-
 //export wgGetConfig
 func wgGetConfig(tunnelHandle int32) *C.char {
 	handle, ok := tunnelHandles[tunnelHandle]
@@ -228,6 +204,40 @@ func wgGetConfig(tunnelHandle int32) *C.char {
 		return nil
 	}
 	return C.CString(settings)
+}
+
+func androidLogError(message string) {
+	C.__android_log_write(C.ANDROID_LOG_ERROR, cstring("WireGuard/GoBackend"), cstring(message))
+}
+
+//export wgBindUpdate
+func wgBindUpdate(tunnelHandle int32) *C.char {
+	handle, ok := tunnelHandles[tunnelHandle]
+	if !ok {
+		msg := fmt.Sprintf("BindUpdate: no userspace device for tunnel handle %d", tunnelHandle)
+		androidLogError(msg)
+		return C.CString(msg)
+	}
+	if err := handle.device.BindUpdate(); err != nil {
+		msg := fmt.Sprintf("BindUpdate: %v", err)
+		androidLogError(msg)
+		return C.CString(msg)
+	}
+	return nil
+}
+
+//export wgSendKeepalivesToPeersWithCurrentKeypair
+func wgSendKeepalivesToPeersWithCurrentKeypair(tunnelHandle int32) *C.char {
+	handle, ok := tunnelHandles[tunnelHandle]
+	if !ok {
+		msg := fmt.Sprintf("SendKeepalivesToPeersWithCurrentKeypair: no userspace device for tunnel handle %d", tunnelHandle)
+		androidLogError(msg)
+		return C.CString(msg)
+	}
+	// One empty packet per peer whose current keypair exists and is inside RejectAfterTime.
+	// Peers with no session are skipped. This does not arm PersistentKeepalive.
+	handle.device.SendKeepalivesToPeersWithCurrentKeypair()
+	return nil
 }
 
 //export wgVersion

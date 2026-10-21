@@ -22,6 +22,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import androidx.annotation.Nullable;
@@ -37,12 +39,22 @@ import androidx.annotation.Nullable;
 public final class Interface {
     private static final int MAX_UDP_PORT = 65535;
     private static final int MIN_UDP_PORT = 0;
+    /**
+     * Full-line comment, not a wg-quick key. {@code wg} and {@code wg-quick} strip
+     * comments, and the Android wg-quick parser forwards them to {@code wg setconf},
+     * which strips them too. Absent means the userspace backend sends one keepalive
+     * when the underlying network changes.
+     */
+    private static final Pattern KEEPALIVE_ON_NETWORK_CHANGE_COMMENT = Pattern.compile(
+            "^\\s*#\\s*KeepaliveOnNetworkChange\\s*=\\s*(true|false)\\s*$",
+            Pattern.CASE_INSENSITIVE);
 
     private final Set<InetNetwork> addresses;
     private final Set<InetAddress> dnsServers;
     private final Set<String> dnsSearchDomains;
     private final Set<String> excludedApplications;
     private final Set<String> includedApplications;
+    private final boolean keepaliveOnNetworkChange;
     private final KeyPair keyPair;
     private final Optional<Integer> listenPort;
     private final Optional<Integer> mtu;
@@ -54,9 +66,22 @@ public final class Interface {
         dnsSearchDomains = Collections.unmodifiableSet(new LinkedHashSet<>(builder.dnsSearchDomains));
         excludedApplications = Collections.unmodifiableSet(new LinkedHashSet<>(builder.excludedApplications));
         includedApplications = Collections.unmodifiableSet(new LinkedHashSet<>(builder.includedApplications));
+        keepaliveOnNetworkChange = builder.keepaliveOnNetworkChange;
         keyPair = Objects.requireNonNull(builder.keyPair, "Interfaces must have a private key");
         listenPort = builder.listenPort;
         mtu = builder.mtu;
+    }
+
+    /**
+     * @return the comment value, or {@code null} when {@code line} is not the
+     * keepalive-on-network-change comment
+     */
+    @Nullable
+    static Boolean parseKeepaliveOnNetworkChangeComment(final String line) {
+        final Matcher matcher = KEEPALIVE_ON_NETWORK_CHANGE_COMMENT.matcher(line);
+        if (!matcher.matches())
+            return null;
+        return "true".equalsIgnoreCase(matcher.group(1));
     }
 
     /**
@@ -68,7 +93,13 @@ public final class Interface {
      */
     public static Interface parse(final Iterable<? extends CharSequence> lines)
             throws BadConfigException {
+        return parse(lines, true);
+    }
+
+    static Interface parse(final Iterable<? extends CharSequence> lines, final boolean keepaliveOnNetworkChange)
+            throws BadConfigException {
         final Builder builder = new Builder();
+        builder.setKeepaliveOnNetworkChange(keepaliveOnNetworkChange);
         for (final CharSequence line : lines) {
             final Attribute attribute = Attribute.parse(line).orElseThrow(() ->
                     new BadConfigException(Section.INTERFACE, Location.TOP_LEVEL,
@@ -113,6 +144,7 @@ public final class Interface {
                 && dnsSearchDomains.equals(other.dnsSearchDomains)
                 && excludedApplications.equals(other.excludedApplications)
                 && includedApplications.equals(other.includedApplications)
+                && keepaliveOnNetworkChange == other.keepaliveOnNetworkChange
                 && keyPair.equals(other.keyPair)
                 && listenPort.equals(other.listenPort)
                 && mtu.equals(other.mtu);
@@ -169,6 +201,14 @@ public final class Interface {
     }
 
     /**
+     * @return whether the userspace backend should send one keepalive to each peer
+     * with a current session when the underlying network changes
+     */
+    public boolean isKeepaliveOnNetworkChange() {
+        return keepaliveOnNetworkChange;
+    }
+
+    /**
      * Returns the public/private key pair used by the interface.
      *
      * @return a key pair
@@ -202,6 +242,7 @@ public final class Interface {
         hash = 31 * hash + dnsServers.hashCode();
         hash = 31 * hash + excludedApplications.hashCode();
         hash = 31 * hash + includedApplications.hashCode();
+        hash = 31 * hash + (keepaliveOnNetworkChange ? 1 : 0);
         hash = 31 * hash + keyPair.hashCode();
         hash = 31 * hash + listenPort.hashCode();
         hash = 31 * hash + mtu.hashCode();
@@ -245,6 +286,7 @@ public final class Interface {
         listenPort.ifPresent(lp -> sb.append("ListenPort = ").append(lp).append('\n'));
         mtu.ifPresent(m -> sb.append("MTU = ").append(m).append('\n'));
         sb.append("PrivateKey = ").append(keyPair.getPrivateKey().toBase64()).append('\n');
+        sb.append("# KeepaliveOnNetworkChange = ").append(keepaliveOnNetworkChange ? "true" : "false").append('\n');
         return sb.toString();
     }
 
@@ -275,6 +317,8 @@ public final class Interface {
         private final Set<String> includedApplications = new LinkedHashSet<>();
         // No default; must be provided before building.
         @Nullable private KeyPair keyPair;
+        // Default on: one packet per peer per underlying-network change, no periodic traffic.
+        private boolean keepaliveOnNetworkChange = true;
         // Defaults to not present.
         private Optional<Integer> listenPort = Optional.empty();
         // Defaults to not present.
@@ -337,6 +381,11 @@ public final class Interface {
 
         public Builder includeApplications(final Collection<String> applications) {
             includedApplications.addAll(applications);
+            return this;
+        }
+
+        public Builder setKeepaliveOnNetworkChange(final boolean keepaliveOnNetworkChange) {
+            this.keepaliveOnNetworkChange = keepaliveOnNetworkChange;
             return this;
         }
 

@@ -213,7 +213,7 @@
                                 android:imeOptions="actionNext"
                                 android:inputType="textNoSuggestions|textVisiblePassword"
                                 android:nextFocusUp="@id/addresses_label_text"
-                                android:nextFocusDown="@id/set_excluded_applications"
+                                android:nextFocusDown="@id/keepalive_on_network_change"
                                 android:nextFocusForward="@id/mtu_text"
                                 android:text="@={config.interface.dnsServers}" />
                         </com.google.android.material.textfield.TextInputLayout>
@@ -238,11 +238,49 @@
                                 android:imeOptions="actionDone"
                                 android:inputType="number"
                                 android:nextFocusUp="@id/listen_port_text"
-                                android:nextFocusDown="@id/set_excluded_applications"
-                                android:nextFocusForward="@id/set_excluded_applications"
+                                android:nextFocusDown="@id/keepalive_on_network_change"
+                                android:nextFocusForward="@id/keepalive_on_network_change"
                                 android:text="@={config.interface.mtu}"
                                 android:textAlignment="center" />
                         </com.google.android.material.textfield.TextInputLayout>
+
+                        <androidx.constraintlayout.widget.Barrier
+                            android:id="@+id/dns_mtu_barrier"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            app:barrierDirection="bottom"
+                            app:constraint_referenced_ids="dns_servers_label_layout,mtu_label_layout" />
+
+                        <com.google.android.material.checkbox.MaterialCheckBox
+                            android:id="@+id/keepalive_on_network_change"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:layout_marginTop="4dp"
+                            android:layout_marginEnd="4dp"
+                            android:checked="@={config.interface.keepaliveOnNetworkChange}"
+                            android:nextFocusUp="@id/dns_servers_text"
+                            android:nextFocusDown="@id/set_excluded_applications"
+                            android:nextFocusForward="@id/set_excluded_applications"
+                            android:text="@string/keepalive_on_network_change"
+                            app:layout_constraintEnd_toEndOf="parent"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintTop_toBottomOf="@id/dns_mtu_barrier" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/keepalive_on_network_change_summary"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="16dp"
+                            android:layout_marginEnd="16dp"
+                            android:paddingStart="32dp"
+                            android:paddingEnd="0dp"
+                            android:text="@string/keepalive_on_network_change_summary"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?android:attr/textColorSecondary"
+                            app:layout_constraintEnd_toEndOf="parent"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintTop_toBottomOf="@id/keepalive_on_network_change" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/set_excluded_applications"
@@ -250,7 +288,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_margin="4dp"
-                            android:nextFocusUp="@id/dns_servers_text"
+                            android:nextFocusUp="@id/keepalive_on_network_change"
                             android:nextFocusDown="@id/peers_layout"
                             android:nextFocusForward="@id/peers_layout"
                             android:onClick="@{fragment::onRequestSetExcludedIncludedApplications}"
@@ -259,7 +297,7 @@
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintEnd_toEndOf="parent"
                             app:layout_constraintStart_toStartOf="parent"
-                            app:layout_constraintTop_toBottomOf="@id/mtu_label_layout"
+                            app:layout_constraintTop_toBottomOf="@id/keepalive_on_network_change_summary"
                             app:rippleColor="?attr/colorSecondary"
                             tools:text="4 excluded applications" />
                     </androidx.constraintlayout.widget.ConstraintLayout>

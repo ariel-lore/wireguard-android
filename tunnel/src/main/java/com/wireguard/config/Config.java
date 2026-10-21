@@ -68,8 +68,15 @@ public final class Config {
         boolean inInterfaceSection = false;
         boolean inPeerSection = false;
         boolean seenInterfaceSection = false;
+        boolean keepaliveOnNetworkChange = true;
         @Nullable String line;
         while ((line = reader.readLine()) != null) {
+            final Boolean keepaliveComment = Interface.parseKeepaliveOnNetworkChangeComment(line);
+            if (keepaliveComment != null) {
+                if (inInterfaceSection)
+                    keepaliveOnNetworkChange = keepaliveComment;
+                continue;
+            }
             final int commentIndex = line.indexOf('#');
             if (commentIndex != -1)
                 line = line.substring(0, commentIndex);
@@ -108,7 +115,7 @@ public final class Config {
             throw new BadConfigException(Section.CONFIG, Location.TOP_LEVEL,
                     Reason.MISSING_SECTION, null);
         // Combine all [Interface] sections in the file.
-        builder.parseInterface(interfaceLines);
+        builder.parseInterface(interfaceLines, keepaliveOnNetworkChange);
         return builder.build();
     }
 
@@ -207,7 +214,13 @@ public final class Config {
 
         public Builder parseInterface(final Iterable<? extends CharSequence> lines)
                 throws BadConfigException {
-            return setInterface(Interface.parse(lines));
+            return parseInterface(lines, true);
+        }
+
+        public Builder parseInterface(final Iterable<? extends CharSequence> lines,
+                                      final boolean keepaliveOnNetworkChange)
+                throws BadConfigException {
+            return setInterface(Interface.parse(lines, keepaliveOnNetworkChange));
         }
 
         public Builder parsePeer(final Iterable<? extends CharSequence> lines)

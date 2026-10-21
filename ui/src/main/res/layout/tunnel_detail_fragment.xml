@@ -169,8 +169,8 @@
                         android:layout_height="wrap_content"
                         android:contentDescription="@string/dns_servers"
                         android:nextFocusUp="@id/addresses_text"
-                        android:nextFocusDown="@id/dns_search_domains_text"
-                        android:nextFocusForward="@id/dns_search_domains_text"
+                        android:nextFocusDown="@id/keepalive_on_network_change_text"
+                        android:nextFocusForward="@id/keepalive_on_network_change_text"
                         android:onClick="@{ClipboardUtils::copyTextView}"
                         android:text="@{config.interface.dnsServers}"
                         android:textAppearance="?attr/textAppearanceBodyLarge"
@@ -178,6 +178,30 @@
                         app:layout_constraintStart_toStartOf="parent"
                         app:layout_constraintTop_toBottomOf="@+id/dns_servers_label"
                         tools:text="8.8.8.8, 8.8.4.4" />
+
+                    <TextView
+                        android:id="@+id/keepalive_on_network_change_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:labelFor="@+id/keepalive_on_network_change_text"
+                        android:text="@string/keepalive_on_network_change"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/dns_servers_text" />
+
+                    <TextView
+                        android:id="@+id/keepalive_on_network_change_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:contentDescription="@string/keepalive_on_network_change"
+                        android:nextFocusUp="@id/dns_servers_text"
+                        android:nextFocusDown="@id/dns_search_domains_text"
+                        android:nextFocusForward="@id/dns_search_domains_text"
+                        android:text="@{config.interface.keepaliveOnNetworkChange ? @string/keepalive_on_network_change_value_on : @string/keepalive_on_network_change_value_off}"
+                        android:textAppearance="?attr/textAppearanceBodyLarge"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@+id/keepalive_on_network_change_label"
+                        tools:text="On" />
 
                     <TextView
                         android:id="@+id/dns_search_domains_label"
@@ -188,7 +212,7 @@
                         android:text="@string/dns_search_domains"
                         android:visibility="@{config.interface.dnsSearchDomains.isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE}"
                         app:layout_constraintStart_toStartOf="parent"
-                        app:layout_constraintTop_toBottomOf="@id/dns_servers_text" />
+                        app:layout_constraintTop_toBottomOf="@id/keepalive_on_network_change_text" />
 
                     <TextView
                         android:id="@+id/dns_search_domains_text"
